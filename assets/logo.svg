@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="512" height="512">
+    <!-- Fundo Escuro -->
+    <rect width="24" height="24" fill="#0f172a" />
+
+    <!-- Carteira -->
+    <path d="M20 7h-7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2Z" fill="#1e293b" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M16 12h.01" stroke="#60a5fa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Carta Valete (J) -->
+    <g transform="rotate(-10 8 12)">
+        <!-- Carta Fundo -->
+        <rect x="3" y="5" width="10" height="14" rx="1" stroke="#3b82f6" stroke-width="1.5" fill="#0f172a" />
+        <!-- Letra J -->
+        <text x="8" y="14.5" font-family="Arial, sans-serif" font-size="8" fill="#60a5fa" font-weight="bold" text-anchor="middle">J</text>
+        <!-- Detalhe da Carta -->
+        <path d="M9 14l2 2 2-2" stroke="#60a5fa" stroke-width="1" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+</svg>

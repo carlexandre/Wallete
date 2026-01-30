@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wallete - Gestão Financeira</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Google Font: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+    <!-- Firebase SDKs (Compat Version) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .progress-gradient { background: linear-gradient(90deg, #10b981 0%, #3b82f6 50%, #ef4444 100%); }
+        
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // --- CONFIGURAÇÃO FIREBASE ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyCeTrip7zVFMqS4NCZG_RYaQ_PTvCcy6hc",
+            authDomain: "wallete-73e8e.firebaseapp.com",
+            projectId: "wallete-73e8e",
+            storageBucket: "wallete-73e8e.firebasestorage.app",
+            messagingSenderId: "232775005769",
+            appId: "1:232775005769:web:8a9de1ffedfb52f8843198"
+        };
+
+        let app, auth, db;
+        let firebaseError = null;
+        
+        try {
+            const isConfigured = firebaseConfig.apiKey && firebaseConfig.apiKey !== "";
+            const hasEnvConfig = typeof __firebase_config !== 'undefined';
+
+            if (!isConfigured && !hasEnvConfig) console.warn("Chaves do Firebase não configuradas.");
+
+            if (!firebase.apps.length) {
+                const configToUse = hasEnvConfig ? JSON.parse(__firebase_config) : firebaseConfig;
+                app = firebase.initializeApp(configToUse);
+            } else {
+                app = firebase.app();
+            }
+            auth = firebase.auth();
+            db = firebase.firestore();
+        } catch (error) {
+            console.error("Erro Config:", error);
+            firebaseError = error.message;
+        }
+
+        const { useState, useEffect, useMemo } = React;
+        const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'wallete-default';
+
+        // --- UTILS ---
+        const getMonthID = (date) => {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            return `${y}-${m}`;
+        };
+
+        const formatCurrency = (val) => val.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+        const getActiveItems = (localItems, recurringItems, currentDate) => {
+            const monthID = getMonthID(currentDate);
+            
+            const activeRecurring = recurringItems.map(item => {
+                if (item.frequency === 'fixed') return item;
+
+                if (item.frequency === 'installments') {
+                    const start = new Date(item.startMonth + "-01");
+                    const current = new Date(monthID + "-01");
+                    start.setMinutes(start.getMinutes() + start.getTimezoneOffset());
+                    current.setMinutes(current.getMinutes() + current.getTimezoneOffset());
+
+                    const diffMonths = (current.getFullYear() - start.getFullYear()) * 12 + (current.getMonth() - start.getMonth());
+                    
+                    if (diffMonths < 0 || diffMonths >= item.installmentsCount) return null;
+
+                    return {
+                        ...item,
+                        installmentInfo: `${diffMonths + 1}/${item.installmentsCount}`
+                    };
+                }
+                return null;
+            }).filter(Boolean);
+
+            return [...localItems, ...activeRecurring];
+        };
+
+        // --- COMPONENTES UI ---
+
+        const WalleteLogo = ({ size = "w-12 h-12" }) => (
+            <div className={`relative ${size} flex items-center justify-center text-blue-400`}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
+                    <path d="M20 7h-7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2Z" fill="#1e293b" />
+                    <path d="M16 12h.01" />
+                    <rect x="3" y="5" width="10" height="14" rx="1" transform="rotate(-10 8 12)" className="stroke-blue-500" fill="#0f172a" />
+                    <text x="6" y="10" fontSize="6" transform="rotate(-10 8 12)" fill="currentColor" fontWeight="bold" stroke="none">J</text>
+                    <path d="M9 14l2 2 2-2" transform="rotate(-10 8 12)" stroke="currentColor" strokeWidth="1"/>
+                </svg>
+            </div>
+        );
+
+        const Button = ({ onClick, children, variant = "primary", className = "", type = "button", disabled = false }) => {
+            const baseClass = "px-4 py-2 rounded-lg font-semibold transition-all duration-200 active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed";
+            const variants = {
+                primary: "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50",
+                secondary: "bg-slate-700 hover:bg-slate-600 text-slate-200",
+                ghost: "text-slate-400 hover:text-white hover:bg-slate-800",
+                success: "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/50"
+            };
+            return <button type={type} onClick={onClick} disabled={disabled} className={`${baseClass} ${variants[variant]} ${className}`}>{children}</button>;
+        };
+
+        const Input = ({ label, value, onChange, type = "text", placeholder, className = "", required = false }) => (
+            <div className={`flex flex-col gap-1 w-full ${className}`}>
+                {label && <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">{label}</label>}
+                <input required={required} type={type} value={value} onChange={onChange} placeholder={placeholder} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-slate-600" />
+            </div>
+        );
+
+        const Select = ({ label, value, onChange, options }) => (
+            <div className="flex flex-col gap-1 w-full">
+                {label && <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">{label}</label>}
+                <select value={value} onChange={onChange} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all">
+                    {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+            </div>
+        );
+
+        const ProgressBar = ({ total, max }) => {
+            const safeMax = max || 1; 
+            const percentage = Math.min((total / safeMax) * 100, 100);
+            const remaining = safeMax - total;
+            const isOverBudget = remaining < 0;
+            
+            let colorClass = "bg-emerald-500";
+            if (percentage > 50) colorClass = "bg-blue-500";
+            if (percentage > 85) colorClass = "bg-orange-500";
+            if (percentage >= 100) colorClass = "bg-red-500";
+
+            return (
+                <div className="w-full space-y-2">
+                    <div className="flex justify-between text-sm">
+                        <span className="text-slate-400">Gastos: <span className="text-white font-medium">R$ {formatCurrency(total)}</span></span>
+                        <span className={`${isOverBudget ? 'text-red-400' : 'text-emerald-400'}`}>
+                            {isOverBudget ? 'Faltou: ' : 'Sobra: '} 
+                            <span className="font-bold">R$ {formatCurrency(Math.abs(remaining))}</span>
+                        </span>
+                    </div>
+                    <div className="h-4 bg-slate-800 rounded-full overflow-hidden border border-slate-700 relative shadow-inner">
+                        <div className={`h-full transition-all duration-700 ease-out ${colorClass} relative`} style={{ width: `${percentage}%` }}>
+                            <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const Card = ({ children, className = "" }) => (
+            <div className={`glass-panel rounded-xl p-4 shadow-xl ${className}`}>
+                {children}
+            </div>
+        );
+
+        // --- APLICAÇÃO ---
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [loading, setLoading] = useState(true);
+            const [userName, setUserName] = useState("");
+            
+            // Auth States
+            const [isRegistering, setIsRegistering] = useState(false);
+            const [authUsername, setAuthUsername] = useState(""); // Username em vez de Email
+            const [authPassword, setAuthPassword] = useState("");
+            const [authName, setAuthName] = useState("");
+            const [authError, setAuthError] = useState("");
+            const [isAuthLoading, setIsAuthLoading] = useState(false);
+
+            // App Data States
+            const [currentDate, setCurrentDate] = useState(new Date());
+            const [monthExpenses, setMonthExpenses] = useState([]);
+            const [recurringExpenses, setRecurringExpenses] = useState([]);
+            const [monthIncomes, setMonthIncomes] = useState([]);
+            const [recurringIncomes, setRecurringIncomes] = useState([]);
+            
+            // Transaction UI States
+            const [isAdding, setIsAdding] = useState(false);
+            const [transactionType, setTransactionType] = useState('expense');
+            const [newCategory, setNewCategory] = useState("");
+            const [newValue, setNewValue] = useState("");
+            const [frequency, setFrequency] = useState("once");
+            const [installmentsCount, setInstallmentsCount] = useState("12");
+
+            const [parentCategoryForSub, setParentCategoryForSub] = useState(null);
+            const [parentTypeForSub, setParentTypeForSub] = useState(null);
+
+            useEffect(() => {
+                if (window.lucide) window.lucide.createIcons();
+            });
+
+            // 1. Auth Init (Session Check)
+            useEffect(() => {
+                if (firebaseError) { setLoading(false); return; }
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await auth.signInWithCustomToken(__initial_auth_token);
+                        }
+                    } catch (error) { console.error("Auth Init Error:", error); }
+                };
+                initAuth();
+                const unsubscribe = auth.onAuthStateChanged((u) => {
+                    if (u) {
+                        setUser(u);
+                        loadProfile(u.uid);
+                    } else {
+                        setUser(null);
+                        setLoading(false);
+                    }
+                });
+                return () => unsubscribe();
+            }, []);
+
+            const loadProfile = async (uid) => {
+                try {
+                    const docSnap = await db.doc(`artifacts/${APP_ID}/users/${uid}/profile/info`).get();
+                    if (docSnap.exists) setUserName(docSnap.data().name);
+                } catch (e) { console.error(e); } 
+                finally { setLoading(false); }
+            };
+
+            // 2. Auth Actions (Login/Register com Username)
+            const handleAuth = async (e) => {
+                e.preventDefault();
+                setAuthError("");
+                setIsAuthLoading(true);
+
+                // TRUQUE: Cria um email falso baseado no usuário para o Firebase aceitar
+                // Remove espaços e deixa minusculo
+                const cleanUsername = authUsername.trim().toLowerCase().replace(/\s+/g, '');
+                const fakeEmail = `${cleanUsername}@wallete.local`;
+
+                if (cleanUsername.length < 3) {
+                    setAuthError("Usuário deve ter pelo menos 3 letras.");
+                    setIsAuthLoading(false);
+                    return;
+                }
+
+                try {
+                    let userCredential;
+                    if (isRegistering) {
+                        // Cadastro
+                        userCredential = await auth.createUserWithEmailAndPassword(fakeEmail, authPassword);
+                        // Salvar Nome Real e Username
+                        await db.doc(`artifacts/${APP_ID}/users/${userCredential.user.uid}/profile/info`).set({ 
+                            name: authName,
+                            username: cleanUsername,
+                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                        }, { merge: true });
+                        setUserName(authName);
+                    } else {
+                        // Login
+                        userCredential = await auth.signInWithEmailAndPassword(fakeEmail, authPassword);
+                    }
+                } catch (error) {
+                    console.error("Auth Error", error);
+                    let msg = "Erro na autenticação.";
+                    if (error.code === 'auth/wrong-password') msg = "Senha incorreta.";
+                    if (error.code === 'auth/user-not-found') msg = "Usuário não encontrado.";
+                    if (error.code === 'auth/email-already-in-use') msg = "Este usuário já existe.";
+                    if (error.code === 'auth/weak-password') msg = "A senha deve ter pelo menos 6 caracteres.";
+                    setAuthError(msg);
+                } finally {
+                    setIsAuthLoading(false);
+                }
+            };
+
+            const handleLogout = () => {
+                auth.signOut();
+                setUserName("");
+                setAuthUsername("");
+                setAuthPassword("");
+            };
+
+            // 3. Data Sync
+            useEffect(() => {
+                if (!user) return;
+                const monthID = getMonthID(currentDate);
+
+                const unsubMonth = db.doc(`artifacts/${APP_ID}/users/${user.uid}/months/${monthID}`)
+                    .onSnapshot((doc) => {
+                        if (doc.exists) {
+                            const data = doc.data();
+                            setMonthExpenses(data.expenses || []);
+                            setMonthIncomes(data.incomes || []);
+                        } else {
+                            setMonthExpenses([]);
+                            setMonthIncomes([]);
+                        }
+                    });
+
+                const unsubRecExp = db.collection(`artifacts/${APP_ID}/users/${user.uid}/recurring`)
+                    .onSnapshot(snapshot => {
+                        const items = [];
+                        snapshot.forEach(doc => items.push({ ...doc.data(), id: doc.id, isRecurring: true }));
+                        setRecurringExpenses(items);
+                    });
+
+                const unsubRecInc = db.collection(`artifacts/${APP_ID}/users/${user.uid}/recurring_incomes`)
+                    .onSnapshot(snapshot => {
+                        const items = [];
+                        snapshot.forEach(doc => items.push({ ...doc.data(), id: doc.id, isRecurring: true }));
+                        setRecurringIncomes(items);
+                    });
+
+                return () => { unsubMonth(); unsubRecExp(); unsubRecInc(); };
+            }, [user, currentDate]);
+
+            // 4. Computed Data
+            const combinedExpenses = useMemo(() => getActiveItems(monthExpenses, recurringExpenses, currentDate), [monthExpenses, recurringExpenses, currentDate]);
+            const combinedIncomes = useMemo(() => getActiveItems(monthIncomes, recurringIncomes, currentDate), [monthIncomes, recurringIncomes, currentDate]);
+
+            const totalExpenses = combinedExpenses.reduce((acc, curr) => acc + (curr.subItems?.reduce((s, i) => s + i.value, 0) || curr.value || 0), 0);
+            const totalIncome = combinedIncomes.reduce((acc, curr) => acc + (curr.subItems?.reduce((s, i) => s + i.value, 0) || curr.value || 0), 0);
+
+            // 5. Actions
+            const saveMonthData = async (field, newData) => {
+                if (!user) return;
+                const monthID = getMonthID(currentDate);
+                await db.doc(`artifacts/${APP_ID}/users/${user.uid}/months/${monthID}`).set({
+                    [field]: newData,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            };
+
+            const handleAddItem = async () => {
+                if (!newCategory) return;
+                const val = newValue ? parseFloat(newValue) : 0;
+                const isIncome = transactionType === 'income';
+                
+                const collectionName = isIncome ? 'recurring_incomes' : 'recurring';
+                const localField = isIncome ? 'incomes' : 'expenses';
+                const currentLocalList = isIncome ? monthIncomes : monthExpenses;
+
+                if (frequency === 'once') {
+                    const newItem = { id: Date.now().toString(), name: newCategory, value: val, subItems: [] };
+                    const updated = [...currentLocalList, newItem];
+                    if(isIncome) setMonthIncomes(updated); else setMonthExpenses(updated);
+                    saveMonthData(localField, updated);
+                } else {
+                    await db.collection(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}`).add({
+                        name: newCategory,
+                        value: val,
+                        subItems: [],
+                        frequency: frequency,
+                        installmentsCount: frequency === 'installments' ? parseInt(installmentsCount) : 0,
+                        startMonth: getMonthID(currentDate),
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+                setNewCategory(""); setNewValue(""); setIsAdding(false); setFrequency("once");
+            };
+
+            const handleAddSubItem = async () => {
+                if (!newCategory || !newValue) return;
+                const val = parseFloat(newValue);
+                const isIncome = parentTypeForSub === 'income';
+                const recurringList = isIncome ? recurringIncomes : recurringExpenses;
+                const localList = isIncome ? monthIncomes : monthExpenses;
+                const localField = isIncome ? 'incomes' : 'expenses';
+                const collectionName = isIncome ? 'recurring_incomes' : 'recurring';
+
+                const isParentRecurring = recurringList.find(r => r.id === parentCategoryForSub);
+
+                if (isParentRecurring) {
+                    const parentRef = db.doc(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}/${parentCategoryForSub}`);
+                    const parentDoc = await parentRef.get();
+                    if (parentDoc.exists) {
+                        const currentSubs = parentDoc.data().subItems || [];
+                        await parentRef.update({ subItems: [...currentSubs, { id: Date.now().toString(), name: newCategory, value: val }] });
+                    }
+                } else {
+                    const updatedList = localList.map(item => {
+                        if (item.id === parentCategoryForSub) {
+                            return { ...item, subItems: [...(item.subItems || []), { id: Date.now().toString(), name: newCategory, value: val }] };
+                        }
+                        return item;
+                    });
+                    if(isIncome) setMonthIncomes(updatedList); else setMonthExpenses(updatedList);
+                    saveMonthData(localField, updatedList);
+                }
+                setNewCategory(""); setNewValue(""); setParentCategoryForSub(null);
+            };
+
+            const handleDeleteItem = async (item, type) => {
+                const isIncome = type === 'income';
+                const localField = isIncome ? 'incomes' : 'expenses';
+                const collectionName = isIncome ? 'recurring_incomes' : 'recurring';
+                const currentLocalList = isIncome ? monthIncomes : monthExpenses;
+
+                if (item.isRecurring) {
+                    if (confirm(`Apagar "${item.name}" de todos os meses?`)) {
+                        await db.doc(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}/${item.id}`).delete();
+                    }
+                } else {
+                    const updated = currentLocalList.filter(i => i.id !== item.id);
+                    if(isIncome) setMonthIncomes(updated); else setMonthExpenses(updated);
+                    saveMonthData(localField, updated);
+                }
+            };
+
+            const handleDeleteSubItem = async (subId, parentItem, type) => {
+                const isIncome = type === 'income';
+                const localField = isIncome ? 'incomes' : 'expenses';
+                const collectionName = isIncome ? 'recurring_incomes' : 'recurring';
+                const currentLocalList = isIncome ? monthIncomes : monthExpenses;
+
+                if (parentItem.isRecurring) {
+                    const updatedSubs = parentItem.subItems.filter(s => s.id !== subId);
+                    await db.doc(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}/${parentItem.id}`).update({ subItems: updatedSubs });
+                } else {
+                    const updatedList = currentLocalList.map(item => {
+                        if (item.id === parentItem.id) {
+                            return { ...item, subItems: item.subItems.filter(sub => sub.id !== subId) };
+                        }
+                        return item;
+                    });
+                    if(isIncome) setMonthIncomes(updatedList); else setMonthExpenses(updatedList);
+                    saveMonthData(localField, updatedList);
+                }
+            };
+
+            // Helpers UI
+            const getItemTotal = (item) => (item.subItems?.reduce((a, b) => a + b.value, 0) || item.value || 0);
+            const changeMonth = (offset) => {
+                const newDate = new Date(currentDate);
+                newDate.setMonth(newDate.getMonth() + offset);
+                setCurrentDate(newDate);
+            };
+            const openAddModal = (type) => { setTransactionType(type); setIsAdding(true); };
+
+            const renderList = (items, type) => (
+                <div className="space-y-3">
+                    {items.map((item) => (
+                        <div key={item.id} className="bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-slate-700/50 relative">
+                            {item.isRecurring && (
+                                <div className={`absolute top-0 right-0 ${type === 'income' ? 'bg-emerald-900/40 text-emerald-300 border-emerald-800/30' : 'bg-blue-900/40 text-blue-300 border-blue-800/30'} text-[10px] px-2 py-0.5 rounded-bl-lg font-medium border-l border-b flex items-center gap-1`}>
+                                    {item.frequency === 'fixed' ? 'Fixo' : `Mês ${item.installmentInfo}`}
+                                    <i data-lucide="repeat" className="w-3 h-3"></i>
+                                </div>
+                            )}
+                            <div className="p-4 flex justify-between items-center mt-1">
+                                <div className="flex-1">
+                                    <h3 className="font-bold text-lg">{item.name}</h3>
+                                    <div className="text-slate-400 text-sm">
+                                        Total: <span className={type === 'income' ? 'text-emerald-300' : 'text-slate-200'}>R$ {formatCurrency(getItemTotal(item))}</span>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => { setParentCategoryForSub(item.id); setParentTypeForSub(type); setNewCategory(""); setNewValue(""); }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-full text-blue-400">
+                                        <i data-lucide="plus" className="w-4 h-4"></i>
+                                    </button>
+                                    <button onClick={() => handleDeleteItem(item, type)} className="p-2 hover:bg-red-500/10 rounded-full text-slate-600 hover:text-red-400">
+                                        <i data-lucide="trash-2" className="w-4 h-4"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            {item.subItems?.length > 0 && (
+                                <div className="bg-slate-900/50 border-t border-slate-700/50 p-3 space-y-2">
+                                    {item.subItems.map(sub => (
+                                        <div key={sub.id} className="flex justify-between items-center pl-2 border-l-2 border-slate-700">
+                                            <span className="text-slate-300 text-sm">{sub.name}</span>
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-white font-mono text-sm">R$ {formatCurrency(sub.value)}</span>
+                                                <button onClick={() => handleDeleteSubItem(sub.id, item, type)} className="text-slate-600 hover:text-red-400"><i data-lucide="x" className="w-3 h-3"></i></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            );
+
+            // --- VIEW ---
+            if (loading) return <div className="h-screen flex items-center justify-center bg-slate-900 text-blue-500"><WalleteLogo size="w-20 h-20 animate-bounce" /></div>;
+
+            if (!user) return (
+                <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-900 relative">
+                    <div className="z-10 w-full max-w-md space-y-8">
+                        <div className="flex flex-col items-center text-center space-y-4">
+                            <WalleteLogo size="w-24 h-24" />
+                            <h1 className="text-4xl font-bold text-white">Wallete</h1>
+                        </div>
+                        <Card>
+                            {/* TAB HEADER */}
+                            <div className="flex border-b border-slate-700 mb-6">
+                                <button 
+                                    className={`flex-1 pb-2 text-sm font-semibold ${!isRegistering ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400'}`}
+                                    onClick={() => { setIsRegistering(false); setAuthError(""); }}
+                                >
+                                    Entrar
+                                </button>
+                                <button 
+                                    className={`flex-1 pb-2 text-sm font-semibold ${isRegistering ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-400'}`}
+                                    onClick={() => { setIsRegistering(true); setAuthError(""); }}
+                                >
+                                    Criar Conta
+                                </button>
+                            </div>
+
+                            <form onSubmit={handleAuth} className="space-y-4">
+                                {isRegistering && (
+                                    <Input required label="Seu Nome" placeholder="Ex: Carlos" value={authName} onChange={(e) => setAuthName(e.target.value)} />
+                                )}
+                                <Input required label="Usuário" placeholder="Ex: carlos123 (sem espaços)" value={authUsername} onChange={(e) => setAuthUsername(e.target.value)} />
+                                <Input required type="password" label="Senha" placeholder="******" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)} />
+                                
+                                {authError && <p className="text-red-400 text-xs bg-red-500/10 p-2 rounded border border-red-500/20">{authError}</p>}
+                                
+                                <Button type="submit" className="w-full py-3" disabled={isAuthLoading}>
+                                    {isAuthLoading ? "Processando..." : (isRegistering ? "Cadastrar e Entrar" : "Entrar")}
+                                </Button>
+                            </form>
+                        </Card>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen bg-slate-900 pb-20 relative">
+                    {/* HEADER */}
+                    <header className="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 py-3 grid grid-cols-3 items-center">
+                        <div className="flex justify-start items-center gap-2">
+                            <WalleteLogo size="w-8 h-8" />
+                            <span className="font-bold text-lg text-slate-200 hidden sm:block">Wallete</span>
+                        </div>
+                        <div className="flex justify-center whitespace-nowrap">
+                            <p className="text-sm font-semibold text-slate-200">Olá, {userName}</p>
+                        </div>
+                        <div className="flex justify-end">
+                            <button onClick={handleLogout} className="text-slate-500 hover:text-white"><i data-lucide="log-out" className="w-5 h-5"></i></button>
+                        </div>
+                    </header>
+
+                    <main className="max-w-md mx-auto p-4 space-y-6">
+                        {/* Month Nav */}
+                        <div className="flex items-center justify-between bg-slate-800 rounded-xl p-1 shadow-lg">
+                            <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white"><i data-lucide="chevron-left" className="w-5 h-5"></i></button>
+                            <span className="font-bold text-lg tracking-wide capitalize">{currentDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}</span>
+                            <button onClick={() => changeMonth(1)} className="p-2 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white"><i data-lucide="chevron-right" className="w-5 h-5"></i></button>
+                        </div>
+
+                        {/* Summary Card */}
+                        <Card className="space-y-4 border-t-4 border-blue-500">
+                            <div className="flex justify-between items-end">
+                                <div>
+                                    <label className="text-xs text-slate-400 font-semibold uppercase">Renda Total</label>
+                                    <div className="text-2xl font-bold text-emerald-400">R$ {formatCurrency(totalIncome)}</div>
+                                </div>
+                                <div className="text-right">
+                                    <label className="text-xs text-slate-400 font-semibold uppercase">Total Gastos</label>
+                                    <div className="text-lg font-bold text-white">R$ {formatCurrency(totalExpenses)}</div>
+                                </div>
+                            </div>
+                            <ProgressBar total={totalExpenses} max={totalIncome} />
+                        </Card>
+
+                        {/* Incomes Section */}
+                        <div className="space-y-2">
+                            <div className="flex justify-between items-center px-1">
+                                <h2 className="text-emerald-400 text-sm font-semibold uppercase tracking-wider flex items-center gap-2">
+                                    <i data-lucide="trending-up" className="w-4 h-4"></i> Entradas
+                                </h2>
+                                <button onClick={() => openAddModal('income')} className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded hover:bg-emerald-500/20 transition-colors">+ Adicionar</button>
+                            </div>
+                            {combinedIncomes.length === 0 ? <div className="text-center py-4 text-slate-600 text-xs border border-dashed border-slate-800 rounded-lg">Nenhuma renda lançada.</div> : renderList(combinedIncomes, 'income')}
+                        </div>
+
+                        {/* Expenses Section */}
+                        <div className="space-y-2 pt-2">
+                            <div className="flex justify-between items-center px-1">
+                                <h2 className="text-red-400 text-sm font-semibold uppercase tracking-wider flex items-center gap-2">
+                                    <i data-lucide="trending-down" className="w-4 h-4"></i> Saídas
+                                </h2>
+                                <button onClick={() => openAddModal('expense')} className="text-xs bg-red-500/10 text-red-400 px-2 py-1 rounded hover:bg-red-500/20 transition-colors">+ Adicionar</button>
+                            </div>
+                            {combinedExpenses.length === 0 ? <div className="text-center py-4 text-slate-600 text-xs border border-dashed border-slate-800 rounded-lg">Nenhum gasto lançado.</div> : renderList(combinedExpenses, 'expense')}
+                        </div>
+
+                        <div className="h-24"></div>
+                    </main>
+
+                    {/* Floating Add Button (Main) */}
+                    <button onClick={() => openAddModal('expense')} className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-500 text-white w-14 h-14 rounded-full shadow-2xl shadow-blue-900/50 flex items-center justify-center transition-transform hover:scale-110 active:scale-95 z-40">
+                        <i data-lucide="plus" className="w-8 h-8"></i>
+                    </button>
+
+                    {/* Generic Add Modal (Category / Income) */}
+                    {isAdding && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+                            <div className="bg-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-4 animate-slide-up border border-slate-700">
+                                <h3 className={`text-xl font-bold ${transactionType === 'income' ? 'text-emerald-400' : 'text-white'}`}>
+                                    {transactionType === 'income' ? 'Nova Entrada' : 'Nova Saída'}
+                                </h3>
+                                <Input label="Nome" placeholder={transactionType === 'income' ? "Ex: Salário, Freelance" : "Ex: Nubank, Aluguel"} value={newCategory} onChange={(e) => setNewCategory(e.target.value)} />
+                                <Input label="Valor Inicial (Opcional)" type="number" placeholder="0.00" value={newValue} onChange={(e) => setNewValue(e.target.value)} />
+                                
+                                <Select 
+                                    label="Repetição"
+                                    value={frequency}
+                                    onChange={(e) => setFrequency(e.target.value)}
+                                    options={[
+                                        { value: 'once', label: 'Apenas este mês' },
+                                        { value: 'fixed', label: 'Fixo (Todo mês)' },
+                                        { value: 'installments', label: 'Definir duração (Meses)' }
+                                    ]}
+                                />
+
+                                {frequency === 'installments' && (
+                                    <Input label="Quantos meses?" type="number" value={installmentsCount} onChange={(e) => setInstallmentsCount(e.target.value)} />
+                                )}
+
+                                <div className="flex gap-3 mt-4">
+                                    <Button variant="secondary" className="flex-1" onClick={() => setIsAdding(false)}>Cancelar</Button>
+                                    <Button variant={transactionType === 'income' ? 'success' : 'primary'} className="flex-1" onClick={handleAddItem}>Salvar</Button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* SubItem Modal */}
+                    {parentCategoryForSub && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+                            <div className="bg-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-4 animate-slide-up border border-slate-700">
+                                <h3 className="text-xl font-bold text-white">Adicionar Detalhe</h3>
+                                <p className="text-sm text-slate-400">Em: <span className="text-blue-400">{(parentTypeForSub === 'income' ? combinedIncomes : combinedExpenses).find(e => e.id === parentCategoryForSub)?.name}</span></p>
+                                <Input label="Descrição" placeholder="Ex: Detalhe extra" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} />
+                                <Input label="Valor" type="number" placeholder="0.00" value={newValue} onChange={(e) => setNewValue(e.target.value)} />
+                                <div className="flex gap-3 mt-4">
+                                    <Button variant="secondary" className="flex-1" onClick={() => setParentCategoryForSub(null)}>Cancelar</Button>
+                                    <Button className="flex-1" onClick={handleAddSubItem}>Adicionar</Button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+    
+    <style>
+        @keyframes slide-up { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .animate-slide-up { animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+    </style>
+</body>
+</html>
