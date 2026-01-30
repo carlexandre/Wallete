@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="Logo Wallete" width="100">
+  <img src="assets/logo.png" alt="Logo Wallete" width="100">
 </p>
 
-# Wallete
+# [Wallete](https://carlexandre.github.io/Wallete/)
 
 Wallete é um gestor financeiro pessoal **simples, moderno e mobile-first**, criado para facilitar o controle de gastos e rendimentos do dia a dia. O projeto foi desenvolvido como uma **Single-File Application (SFA)**, eliminando processos complexos de instalação e permitindo uso rápido e direto.
 
@@ -50,6 +50,4 @@ Wallete é um gestor financeiro pessoal **simples, moderno e mobile-first**, cri
 - Experiência otimizada para **dispositivos móveis**.
 - Simplicidade, performance e usabilidade.
 - Ideal para quem quer controlar finanças sem burocracia.
-
-o livre para fins educacionais e pessoais.
 
