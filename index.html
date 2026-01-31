@@ -43,6 +43,16 @@
         input[type=number]::-webkit-inner-spin-button, 
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; }
+
+        /* Hide scrollbar for chrome/safari/opera */
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        /* Hide scrollbar for IE, Edge and Firefox */
+        .no-scrollbar {
+          -ms-overflow-style: none;  /* IE and Edge */
+          scrollbar-width: none;  /* Firefox */
+        }
     </style>
 </head>
 <body>
@@ -84,11 +94,39 @@
         const { useState, useEffect, useMemo } = React;
         const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'wallete-default';
 
+        // --- DADOS ESTÁTICOS ---
+        const CATEGORIES = {
+            expense: [
+                { id: 'food', label: 'Alimentação', icon: 'utensils' },
+                { id: 'transport', label: 'Transporte', icon: 'car' },
+                { id: 'leisure', label: 'Lazer', icon: 'party-popper' },
+                { id: 'investment', label: 'Investimento', icon: 'bar-chart-3' },
+                { id: 'sport', label: 'Esporte', icon: 'dumbbell' },
+                { id: 'home', label: 'Casa', icon: 'home' },
+                { id: 'health', label: 'Saúde', icon: 'heart-pulse' },
+                { id: 'shopping', label: 'Compras', icon: 'shopping-bag' },
+                { id: 'other', label: 'Outros', icon: 'circle-dashed' }
+            ],
+            income: [
+                { id: 'salary', label: 'Salário', icon: 'banknote' },
+                { id: 'freelance', label: 'Freelance', icon: 'briefcase' },
+                { id: 'investment', label: 'Rendimentos', icon: 'trending-up' },
+                { id: 'gift', label: 'Presente', icon: 'gift' },
+                { id: 'other', label: 'Outros', icon: 'circle-dashed' }
+            ]
+        };
+
         // --- UTILS ---
         const getMonthID = (date) => {
             const y = date.getFullYear();
             const m = String(date.getMonth() + 1).padStart(2, '0');
             return `${y}-${m}`;
+        };
+
+        const getPreviousMonthID = (date) => {
+            const d = new Date(date);
+            d.setMonth(d.getMonth() - 1);
+            return getMonthID(d);
         };
 
         const formatCurrency = (val) => val.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -97,10 +135,13 @@
             const monthID = getMonthID(currentDate);
             
             const activeRecurring = recurringItems.map(item => {
+                if (monthID < item.startMonth) return null;
+                if (item.exceptions && item.exceptions.includes(monthID)) return null;
+                if (item.stoppedAt && monthID > item.stoppedAt) return null;
+
                 let isActiveParent = false;
                 let installmentInfo = '';
 
-                // 1. Verifica se o PAI deve aparecer
                 if (item.frequency === 'fixed') {
                     isActiveParent = true;
                 } else if (item.frequency === 'installments') {
@@ -119,15 +160,12 @@
 
                 if (!isActiveParent) return null;
 
-                // 2. Filtra os SUBITENS ativos para este mês
                 const activeSubItems = (item.subItems || []).map(sub => {
-                    // Se não tiver frequência definida (itens antigos), assume FIXO (backward compatibility)
                     const subFreq = sub.frequency || 'fixed';
 
                     if (subFreq === 'fixed') return sub;
 
                     if (subFreq === 'once') {
-                        // Só mostra se foi criado neste mês
                         return sub.startMonth === monthID ? sub : null;
                     }
 
@@ -148,7 +186,7 @@
                         return null;
                     }
                     return sub;
-                }).filter(Boolean); // Remove os nulos
+                }).filter(Boolean);
 
                 return {
                     ...item,
@@ -180,15 +218,17 @@
                 primary: "bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/50",
                 secondary: "bg-slate-700 hover:bg-slate-600 text-slate-200",
                 ghost: "text-slate-400 hover:text-white hover:bg-slate-800",
-                success: "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/50"
+                success: "bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/50",
+                danger: "bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/20"
             };
             return <button type={type} onClick={onClick} disabled={disabled} className={`${baseClass} ${variants[variant]} ${className}`}>{children}</button>;
         };
 
-        const Input = ({ label, value, onChange, type = "text", placeholder, className = "", required = false }) => (
+        const Input = ({ label, value, onChange, type = "text", placeholder, className = "", required = false, max, helperText }) => (
             <div className={`flex flex-col gap-1 w-full ${className}`}>
                 {label && <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">{label}</label>}
-                <input required={required} type={type} value={value} onChange={onChange} placeholder={placeholder} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-slate-600" />
+                <input max={max} required={required} type={type} value={value} onChange={onChange} placeholder={placeholder} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all placeholder-slate-600" />
+                {helperText && <p className="text-[10px] text-orange-400">{helperText}</p>}
             </div>
         );
 
@@ -201,7 +241,9 @@
             </div>
         );
 
-        const ProgressBar = ({ total, max }) => {
+        const ProgressBar = ({ total, max, loading }) => {
+            if (loading) return <div className="w-full h-12 bg-slate-800/50 animate-pulse rounded-lg flex items-center justify-center text-xs text-slate-500">Carregando mês...</div>;
+
             const safeMax = max || 1; 
             const percentage = Math.min((total / safeMax) * 100, 100);
             const remaining = safeMax - total;
@@ -236,6 +278,10 @@
             </div>
         );
 
+        const CategoryIcon = ({ iconName, size = "w-5 h-5", className = "" }) => {
+            return <i data-lucide={iconName || "circle-dashed"} className={`${size} ${className}`}></i>
+        };
+
         // --- APLICAÇÃO ---
 
         function App() {
@@ -257,12 +303,20 @@
             const [recurringExpenses, setRecurringExpenses] = useState([]);
             const [monthIncomes, setMonthIncomes] = useState([]);
             const [recurringIncomes, setRecurringIncomes] = useState([]);
+            const [isMonthLoading, setIsMonthLoading] = useState(false);
+            
+            // Filters
+            const [expenseFilter, setExpenseFilter] = useState('all');
+            const [incomeFilter, setIncomeFilter] = useState('all');
+            const [expandIncomeFilter, setExpandIncomeFilter] = useState(false);
+            const [expandExpenseFilter, setExpandExpenseFilter] = useState(false);
             
             // Transaction UI States
             const [isAdding, setIsAdding] = useState(false);
             const [transactionType, setTransactionType] = useState('expense');
             const [newCategory, setNewCategory] = useState("");
             const [newValue, setNewValue] = useState("");
+            const [newCategoryIcon, setNewCategoryIcon] = useState("other");
             const [frequency, setFrequency] = useState("once");
             const [installmentsCount, setInstallmentsCount] = useState("12");
 
@@ -272,11 +326,18 @@
             const [subFrequency, setSubFrequency] = useState("once");
             const [subInstallmentsCount, setSubInstallmentsCount] = useState("12");
 
+            // Delete & Edit UI State
+            const [deleteModal, setDeleteModal] = useState(null); // { item, type }
+            const [editModal, setEditModal] = useState(null); // { item, type, isSubItem, parentItem }
+            const [editName, setEditName] = useState("");
+            const [editValue, setEditValue] = useState("");
+            const [editCategory, setEditCategory] = useState("other");
+
             useEffect(() => {
                 if (window.lucide) window.lucide.createIcons();
             });
 
-            // 1. Auth Init (Session Check)
+            // 1. Auth Init
             useEffect(() => {
                 if (firebaseError) { setLoading(false); return; }
                 const initAuth = async () => {
@@ -358,20 +419,7 @@
             // 3. Data Sync
             useEffect(() => {
                 if (!user) return;
-                const monthID = getMonthID(currentDate);
-
-                const unsubMonth = db.doc(`artifacts/${APP_ID}/users/${user.uid}/months/${monthID}`)
-                    .onSnapshot((doc) => {
-                        if (doc.exists) {
-                            const data = doc.data();
-                            setMonthExpenses(data.expenses || []);
-                            setMonthIncomes(data.incomes || []);
-                        } else {
-                            setMonthExpenses([]);
-                            setMonthIncomes([]);
-                        }
-                    });
-
+                
                 const unsubRecExp = db.collection(`artifacts/${APP_ID}/users/${user.uid}/recurring`)
                     .onSnapshot(snapshot => {
                         const items = [];
@@ -385,15 +433,36 @@
                         snapshot.forEach(doc => items.push({ ...doc.data(), id: doc.id, isRecurring: true }));
                         setRecurringIncomes(items);
                     });
+                
+                return () => { unsubRecExp(); unsubRecInc(); };
+            }, [user]);
 
-                return () => { unsubMonth(); unsubRecExp(); unsubRecInc(); };
+            useEffect(() => {
+                if (!user) return;
+                
+                const monthID = getMonthID(currentDate);
+                setIsMonthLoading(true);
+
+                const unsubMonth = db.doc(`artifacts/${APP_ID}/users/${user.uid}/months/${monthID}`)
+                    .onSnapshot((doc) => {
+                        setIsMonthLoading(false);
+                        if (doc.exists) {
+                            const data = doc.data();
+                            setMonthExpenses(data.expenses || []);
+                            setMonthIncomes(data.incomes || []);
+                        } else {
+                            setMonthExpenses([]);
+                            setMonthIncomes([]);
+                        }
+                    });
+
+                return () => unsubMonth();
             }, [user, currentDate]);
 
             // 4. Computed Data
             const combinedExpenses = useMemo(() => getActiveItems(monthExpenses, recurringExpenses, currentDate), [monthExpenses, recurringExpenses, currentDate]);
             const combinedIncomes = useMemo(() => getActiveItems(monthIncomes, recurringIncomes, currentDate), [monthIncomes, recurringIncomes, currentDate]);
 
-            // CORREÇÃO: Agora soma o valor do PAI + a soma dos SUBITENS
             const totalExpenses = combinedExpenses.reduce((acc, curr) => {
                 const parentVal = curr.value || 0;
                 const subVal = curr.subItems?.reduce((s, i) => s + i.value, 0) || 0;
@@ -405,6 +474,17 @@
                 const subVal = curr.subItems?.reduce((s, i) => s + i.value, 0) || 0;
                 return acc + parentVal + subVal;
             }, 0);
+
+            // Filtered Items
+            const filteredExpenses = useMemo(() => {
+                if (expenseFilter === 'all') return combinedExpenses;
+                return combinedExpenses.filter(item => (item.category || 'other') === expenseFilter);
+            }, [combinedExpenses, expenseFilter]);
+
+            const filteredIncomes = useMemo(() => {
+                if (incomeFilter === 'all') return combinedIncomes;
+                return combinedIncomes.filter(item => (item.category || 'other') === incomeFilter);
+            }, [combinedIncomes, incomeFilter]);
 
             // 5. Actions
             const saveMonthData = async (field, newData) => {
@@ -425,8 +505,16 @@
                 const localField = isIncome ? 'incomes' : 'expenses';
                 const currentLocalList = isIncome ? monthIncomes : monthExpenses;
 
+                const cat = newCategoryIcon || 'other';
+
                 if (frequency === 'once') {
-                    const newItem = { id: Date.now().toString(), name: newCategory, value: val, subItems: [] };
+                    const newItem = { 
+                        id: Date.now().toString(), 
+                        name: newCategory, 
+                        value: val, 
+                        category: cat,
+                        subItems: [] 
+                    };
                     const updated = [...currentLocalList, newItem];
                     if(isIncome) setMonthIncomes(updated); else setMonthExpenses(updated);
                     saveMonthData(localField, updated);
@@ -434,6 +522,7 @@
                     await db.collection(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}`).add({
                         name: newCategory,
                         value: val,
+                        category: cat,
                         subItems: [],
                         frequency: frequency,
                         installmentsCount: frequency === 'installments' ? parseInt(installmentsCount) : 0,
@@ -441,7 +530,25 @@
                         createdAt: firebase.firestore.FieldValue.serverTimestamp()
                     });
                 }
-                setNewCategory(""); setNewValue(""); setIsAdding(false); setFrequency("once");
+                setNewCategory(""); setNewValue(""); setIsAdding(false); setFrequency("once"); setNewCategoryIcon("other");
+            };
+
+            const getParentRemainingInstallments = () => {
+                if (!parentCategoryForSub) return 999;
+                const list = parentTypeForSub === 'income' ? combinedIncomes : combinedExpenses;
+                const parent = list.find(e => e.id === parentCategoryForSub);
+                
+                if (parent && parent.frequency === 'installments' && parent.installmentsCount) {
+                    const start = new Date(parent.startMonth + "-01");
+                    const current = new Date(getMonthID(currentDate) + "-01");
+                    start.setMinutes(start.getMinutes() + start.getTimezoneOffset());
+                    current.setMinutes(current.getMinutes() + current.getTimezoneOffset());
+                    
+                    const diff = (current.getFullYear() - start.getFullYear()) * 12 + (current.getMonth() - start.getMonth());
+                    const remaining = parent.installmentsCount - diff;
+                    return Math.max(1, remaining);
+                }
+                return 999;
             };
 
             const handleAddSubItem = async () => {
@@ -456,24 +563,31 @@
                 const isParentRecurring = recurringList.some(r => r.id === parentCategoryForSub);
 
                 if (isParentRecurring) {
-                    // Adiciona subitem com recorrência específica dentro do pai recorrente
                     const parentRef = db.doc(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}/${parentCategoryForSub}`);
                     const parentDoc = await parentRef.get();
                     if (parentDoc.exists) {
-                        const currentSubs = parentDoc.data().subItems || [];
+                        const parentData = parentDoc.data();
+                        
+                        if (parentData.frequency === 'installments' && subFrequency === 'installments') {
+                            const max = getParentRemainingInstallments();
+                            if (parseInt(subInstallmentsCount) > max) {
+                                alert(`Erro: O número de parcelas não pode exceder ${max} (limite do item principal).`);
+                                return;
+                            }
+                        }
+
+                        const currentSubs = parentData.subItems || [];
                         const newSubItem = { 
                             id: Date.now().toString(), 
                             name: newCategory, 
                             value: val,
-                            // Campos de recorrência do subitem
-                            frequency: subFrequency, // once, fixed, installments
+                            frequency: subFrequency,
                             installmentsCount: subFrequency === 'installments' ? parseInt(subInstallmentsCount) : 0,
                             startMonth: getMonthID(currentDate)
                         };
                         await parentRef.update({ subItems: [...currentSubs, newSubItem] });
                     }
                 } else {
-                    // Item local (mês), apenas adiciona
                     const updatedList = localList.map(item => {
                         if (item.id === parentCategoryForSub) {
                             return { ...item, subItems: [...(item.subItems || []), { id: Date.now().toString(), name: newCategory, value: val }] };
@@ -486,21 +600,40 @@
                 setNewCategory(""); setNewValue(""); setParentCategoryForSub(null); setSubFrequency("once");
             };
 
-            const handleDeleteItem = async (item, type) => {
+            const executeDelete = async (action) => {
+                if (!deleteModal || !user) return;
+                
+                const { item, type } = deleteModal;
                 const isIncome = type === 'income';
                 const localField = isIncome ? 'incomes' : 'expenses';
                 const collectionName = isIncome ? 'recurring_incomes' : 'recurring';
                 const currentLocalList = isIncome ? monthIncomes : monthExpenses;
+                const monthID = getMonthID(currentDate);
 
-                if (item.isRecurring) {
-                    if (confirm(`Apagar "${item.name}" de todos os meses?`)) {
-                        await db.doc(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}/${item.id}`).delete();
-                    }
-                } else {
+                if (!item.isRecurring) {
                     const updated = currentLocalList.filter(i => i.id !== item.id);
                     if(isIncome) setMonthIncomes(updated); else setMonthExpenses(updated);
                     saveMonthData(localField, updated);
+                    setDeleteModal(null);
+                    return;
                 }
+
+                const docRef = db.doc(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}/${item.id}`);
+
+                if (action === 'this_month') {
+                    await docRef.update({
+                        exceptions: firebase.firestore.FieldValue.arrayUnion(monthID)
+                    });
+                } else if (action === 'future') {
+                    const prevMonth = getPreviousMonthID(currentDate);
+                    await docRef.update({
+                        stoppedAt: prevMonth
+                    });
+                } else if (action === 'all') {
+                    await docRef.delete();
+                }
+
+                setDeleteModal(null);
             };
 
             const handleDeleteSubItem = async (subId, parentItem, type) => {
@@ -524,8 +657,105 @@
                 }
             };
 
-            // Helpers UI
-            // CORREÇÃO: Atualizado também para a exibição na lista (Pai + Filhos)
+            const openEditModal = (item, type, isSubItem = false, parentItem = null) => {
+                setEditModal({ item, type, isSubItem, parentItem });
+                setEditName(item.name);
+                setEditValue(item.value);
+                setEditCategory(item.category || "other");
+            };
+
+            const executeEdit = async (action) => {
+                if (!editModal || !user) return;
+                
+                const { item, type, isSubItem, parentItem } = editModal;
+                const isIncome = type === 'income';
+                const localField = isIncome ? 'incomes' : 'expenses';
+                const collectionName = isIncome ? 'recurring_incomes' : 'recurring';
+                const currentLocalList = isIncome ? monthIncomes : monthExpenses;
+                const monthID = getMonthID(currentDate);
+                const newVal = parseFloat(editValue);
+
+                if (isSubItem) {
+                    if (parentItem.isRecurring) {
+                        if (action === 'this_month') {
+                            await db.doc(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}/${parentItem.id}`).update({
+                                exceptions: firebase.firestore.FieldValue.arrayUnion(monthID)
+                            });
+                            const newSubItems = parentItem.subItems.map(sub => sub.id === item.id ? { ...sub, name: editName, value: newVal } : sub);
+                            const newItem = {
+                                ...parentItem,
+                                isRecurring: false,
+                                id: Date.now().toString(),
+                                subItems: newSubItems
+                            };
+                            delete newItem.exceptions; delete newItem.startMonth; delete newItem.frequency; delete newItem.installmentsCount;
+                            const updated = [...currentLocalList, newItem];
+                            saveMonthData(localField, updated);
+                        } else {
+                            if (action === 'future') {
+                                const prevMonth = getPreviousMonthID(currentDate);
+                                await db.doc(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}/${parentItem.id}`).update({ stoppedAt: prevMonth });
+                                const newSubItems = parentItem.subItems.map(sub => sub.id === item.id ? { ...sub, name: editName, value: newVal } : sub);
+                                const newItem = {
+                                    ...parentItem,
+                                    startMonth: monthID,
+                                    subItems: newSubItems
+                                };
+                                delete newItem.id; delete newItem.installmentInfo;
+                                await db.collection(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}`).add(newItem);
+                            } else {
+                                const newSubItems = parentItem.subItems.map(sub => sub.id === item.id ? { ...sub, name: editName, value: newVal } : sub);
+                                await db.doc(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}/${parentItem.id}`).update({ subItems: newSubItems });
+                            }
+                        }
+                    } else {
+                        const updatedList = currentLocalList.map(p => {
+                            if (p.id === parentItem.id) {
+                                return { ...p, subItems: p.subItems.map(sub => sub.id === item.id ? { ...sub, name: editName, value: newVal } : sub) };
+                            }
+                            return p;
+                        });
+                        saveMonthData(localField, updatedList);
+                    }
+                } else {
+                    if (!item.isRecurring) {
+                        const updatedList = currentLocalList.map(i => i.id === item.id ? { ...i, name: editName, value: newVal, category: editCategory } : i);
+                        saveMonthData(localField, updatedList);
+                    } else {
+                        const docRef = db.doc(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}/${item.id}`);
+                        if (action === 'this_month') {
+                            await docRef.update({ exceptions: firebase.firestore.FieldValue.arrayUnion(monthID) });
+                            const newItem = {
+                                ...item,
+                                name: editName, 
+                                value: newVal,
+                                category: editCategory,
+                                isRecurring: false,
+                                id: Date.now().toString()
+                            };
+                            delete newItem.exceptions; delete newItem.startMonth; delete newItem.frequency; delete newItem.installmentsCount; delete newItem.installmentInfo;
+                            const updated = [...currentLocalList, newItem];
+                            saveMonthData(localField, updated);
+                        } else if (action === 'future') {
+                            const prevMonth = getPreviousMonthID(currentDate);
+                            await docRef.update({ stoppedAt: prevMonth });
+                            const newItem = {
+                                ...item,
+                                name: editName, 
+                                value: newVal,
+                                category: editCategory,
+                                startMonth: monthID
+                            };
+                            delete newItem.id; delete newItem.installmentInfo; delete newItem.exceptions;
+                            await db.collection(`artifacts/${APP_ID}/users/${user.uid}/${collectionName}`).add(newItem);
+                        } else {
+                            await docRef.update({ name: editName, value: newVal, category: editCategory });
+                        }
+                    }
+                }
+                setEditModal(null);
+            };
+
             const getItemTotal = (item) => {
                 const parentVal = item.value || 0;
                 const subVal = item.subItems?.reduce((a, b) => a + b.value, 0) || 0;
@@ -533,66 +763,117 @@
             };
 
             const changeMonth = (offset) => {
+                setMonthExpenses([]);
+                setMonthIncomes([]);
                 const newDate = new Date(currentDate);
                 newDate.setMonth(newDate.getMonth() + offset);
                 setCurrentDate(newDate);
             };
-            const openAddModal = (type) => { setTransactionType(type); setIsAdding(true); };
+            const openAddModal = (type) => { setTransactionType(type); setIsAdding(true); setNewCategoryIcon('other'); };
 
-            // Verifica se o pai selecionado é recorrente
             const isSelectedParentRecurring = useMemo(() => {
                 if (!parentCategoryForSub) return false;
                 const list = parentTypeForSub === 'income' ? recurringIncomes : recurringExpenses;
                 return list.some(r => r.id === parentCategoryForSub);
             }, [parentCategoryForSub, parentTypeForSub, recurringExpenses, recurringIncomes]);
 
+            const getSubItemFrequencyOptions = () => {
+                const list = parentTypeForSub === 'income' ? combinedIncomes : combinedExpenses;
+                const parent = list.find(e => e.id === parentCategoryForSub);
+                
+                if (!parent) return [{ value: 'once', label: 'Apenas neste mês' }];
+
+                if (parent.frequency === 'installments') {
+                    return [
+                        { value: 'once', label: 'Apenas neste mês' },
+                        { value: 'installments', label: 'Parcelado (Limitado)' }
+                    ];
+                }
+                
+                if (parent.frequency === 'fixed') {
+                    return [
+                        { value: 'once', label: 'Apenas neste mês' },
+                        { value: 'fixed', label: 'Fixo (Igual ao Pai)' }
+                    ];
+                }
+
+                return [
+                    { value: 'once', label: 'Apenas neste mês' },
+                    { value: 'fixed', label: 'Fixo' },
+                    { value: 'installments', label: 'Parcelado' }
+                ];
+            };
+
+            const maxSubMonths = getParentRemainingInstallments();
+
+            const getCategoryInfo = (catId, type) => {
+                const list = type === 'income' ? CATEGORIES.income : CATEGORIES.expense;
+                return list.find(c => c.id === catId) || { icon: 'circle-dashed', label: 'Outros' };
+            };
+
             const renderList = (items, type) => (
                 <div className="space-y-3">
-                    {items.map((item) => (
-                        <div key={item.id} className="bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-slate-700/50 relative">
-                            {item.isRecurring && (
-                                <div className={`absolute top-0 right-0 ${type === 'income' ? 'bg-emerald-900/40 text-emerald-300 border-emerald-800/30' : 'bg-blue-900/40 text-blue-300 border-blue-800/30'} text-[10px] px-2 py-0.5 rounded-bl-lg font-medium border-l border-b flex items-center gap-1`}>
-                                    {item.frequency === 'fixed' ? 'Fixo' : `Mês ${item.installmentInfo}`}
-                                    <i data-lucide="repeat" className="w-3 h-3"></i>
-                                </div>
-                            )}
-                            <div className="p-4 flex justify-between items-center mt-1">
-                                <div className="flex-1">
-                                    <h3 className="font-bold text-lg">{item.name}</h3>
-                                    <div className="text-slate-400 text-sm">
-                                        Total: <span className={type === 'income' ? 'text-emerald-300' : 'text-slate-200'}>R$ {formatCurrency(getItemTotal(item))}</span>
+                    {items.map((item) => {
+                        const catInfo = getCategoryInfo(item.category || 'other', type);
+                        return (
+                            <div key={item.id} className="bg-slate-800 rounded-xl overflow-hidden shadow-sm border border-slate-700/50 relative">
+                                {item.isRecurring && (
+                                    <div className={`absolute top-0 right-0 ${type === 'income' ? 'bg-emerald-900/40 text-emerald-300 border-emerald-800/30' : 'bg-blue-900/40 text-blue-300 border-blue-800/30'} text-[10px] px-2 py-0.5 rounded-bl-lg font-medium border-l border-b flex items-center gap-1`}>
+                                        {item.frequency === 'fixed' ? 'Fixo' : `Mês ${item.installmentInfo}`}
+                                        <i data-lucide="repeat" className="w-3 h-3"></i>
                                     </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <button onClick={() => { 
-                                        setParentCategoryForSub(item.id); 
-                                        setParentTypeForSub(type); 
-                                        setNewCategory(""); 
-                                        setNewValue(""); 
-                                        setSubFrequency("once"); // Default para subitems
-                                    }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-full text-blue-400">
-                                        <i data-lucide="plus" className="w-4 h-4"></i>
-                                    </button>
-                                    <button onClick={() => handleDeleteItem(item, type)} className="p-2 hover:bg-red-500/10 rounded-full text-slate-600 hover:text-red-400">
-                                        <i data-lucide="trash-2" className="w-4 h-4"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            {item.subItems?.length > 0 && (
-                                <div className="bg-slate-900/50 border-t border-slate-700/50 p-3 space-y-2">
-                                    {item.subItems.map(sub => (
-                                        <div key={sub.id} className="flex justify-between items-center pl-2 border-l-2 border-slate-700">
-                                            <span className="text-slate-300 text-sm">{sub.name}</span>
-                                            <div className="flex items-center gap-3">
-                                                <span className="text-white font-mono text-sm">R$ {formatCurrency(sub.value)}</span>
-                                                <button onClick={() => handleDeleteSubItem(sub.id, item, type)} className="text-slate-600 hover:text-red-400"><i data-lucide="x" className="w-3 h-3"></i></button>
+                                )}
+                                <div className="p-4 flex justify-between items-center mt-1">
+                                    <div className="flex-1 flex items-center gap-3">
+                                        <div className={`p-2 rounded-lg ${type === 'income' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                                            <CategoryIcon iconName={catInfo.icon} />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-lg leading-tight">{item.name}</h3>
+                                            <div className="text-slate-400 text-xs mt-0.5">
+                                                {catInfo.label} • <span className={type === 'income' ? 'text-emerald-300' : 'text-slate-200'}>R$ {formatCurrency(getItemTotal(item))}</span>
                                             </div>
                                         </div>
-                                    ))}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => { 
+                                            setParentCategoryForSub(item.id); 
+                                            setParentTypeForSub(type); 
+                                            setNewCategory(""); 
+                                            setNewValue(""); 
+                                            setSubFrequency("once");
+                                        }} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-full text-blue-400">
+                                            <i data-lucide="plus" className="w-4 h-4"></i>
+                                        </button>
+                                        
+                                        <button onClick={() => openEditModal(item, type)} className="p-2 hover:bg-slate-700 rounded-full text-slate-500 hover:text-white">
+                                            <i data-lucide="pencil" className="w-4 h-4"></i>
+                                        </button>
+
+                                        <button onClick={() => setDeleteModal({ item, type })} className="p-2 hover:bg-red-500/10 rounded-full text-slate-600 hover:text-red-400">
+                                            <i data-lucide="trash-2" className="w-4 h-4"></i>
+                                        </button>
+                                    </div>
                                 </div>
-                            )}
-                        </div>
-                    ))}
+                                {item.subItems?.length > 0 && (
+                                    <div className="bg-slate-900/50 border-t border-slate-700/50 p-3 space-y-2">
+                                        {item.subItems.map(sub => (
+                                            <div key={sub.id} className="flex justify-between items-center pl-2 border-l-2 border-slate-700">
+                                                <span className="text-slate-300 text-sm">{sub.name}</span>
+                                                <div className="flex items-center gap-3">
+                                                    <span className="text-white font-mono text-sm">R$ {formatCurrency(sub.value)}</span>
+                                                    <div className="flex gap-1">
+                                                        <button onClick={() => openEditModal(sub, type, true, item)} className="text-slate-600 hover:text-white"><i data-lucide="pencil" className="w-3 h-3"></i></button>
+                                                        <button onClick={() => handleDeleteSubItem(sub.id, item, type)} className="text-slate-600 hover:text-red-400"><i data-lucide="x" className="w-3 h-3"></i></button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             );
 
@@ -646,23 +927,57 @@
                                 <div><label className="text-xs text-slate-400 font-semibold uppercase">Renda Total</label><div className="text-2xl font-bold text-emerald-400">R$ {formatCurrency(totalIncome)}</div></div>
                                 <div className="text-right"><label className="text-xs text-slate-400 font-semibold uppercase">Total Gastos</label><div className="text-lg font-bold text-white">R$ {formatCurrency(totalExpenses)}</div></div>
                             </div>
-                            <ProgressBar total={totalExpenses} max={totalIncome} />
+                            <ProgressBar total={totalExpenses} max={totalIncome} loading={isMonthLoading} />
                         </Card>
 
                         <div className="space-y-2">
                             <div className="flex justify-between items-center px-1">
-                                <h2 className="text-emerald-400 text-sm font-semibold uppercase tracking-wider flex items-center gap-2"><i data-lucide="trending-up" className="w-4 h-4"></i> Entradas</h2>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-emerald-400 text-sm font-semibold uppercase tracking-wider flex items-center gap-2">
+                                        <i data-lucide="trending-up" className="w-4 h-4"></i> Entradas
+                                    </h2>
+                                    <button onClick={() => setExpandIncomeFilter(!expandIncomeFilter)} className="p-1 rounded-full hover:bg-slate-800 text-slate-500 transition-colors">
+                                        <i data-lucide={expandIncomeFilter ? "chevron-up" : "chevron-down"} className="w-4 h-4"></i>
+                                    </button>
+                                </div>
                                 <button onClick={() => openAddModal('income')} className="text-xs bg-emerald-500/10 text-emerald-400 px-2 py-1 rounded hover:bg-emerald-500/20 transition-colors">+ Adicionar</button>
                             </div>
-                            {combinedIncomes.length === 0 ? <div className="text-center py-4 text-slate-600 text-xs border border-dashed border-slate-800 rounded-lg">Nenhuma renda lançada.</div> : renderList(combinedIncomes, 'income')}
+                            
+                            <div className={`gap-2 mb-2 ${expandIncomeFilter ? 'flex flex-wrap' : 'flex overflow-x-auto pb-2 no-scrollbar'}`}>
+                                <button onClick={() => setIncomeFilter('all')} className={`px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${incomeFilter === 'all' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Todos</button>
+                                {CATEGORIES.income.map(cat => (
+                                    <button key={cat.id} onClick={() => setIncomeFilter(cat.id)} className={`px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-2 ${incomeFilter === cat.id ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
+                                        <CategoryIcon iconName={cat.icon} size="w-3 h-3" /> {cat.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {filteredIncomes.length === 0 ? <div className="text-center py-4 text-slate-600 text-xs border border-dashed border-slate-800 rounded-lg">Nenhuma renda encontrada.</div> : renderList(filteredIncomes, 'income')}
                         </div>
 
                         <div className="space-y-2 pt-2">
                             <div className="flex justify-between items-center px-1">
-                                <h2 className="text-red-400 text-sm font-semibold uppercase tracking-wider flex items-center gap-2"><i data-lucide="trending-down" className="w-4 h-4"></i> Saídas</h2>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-red-400 text-sm font-semibold uppercase tracking-wider flex items-center gap-2">
+                                        <i data-lucide="trending-down" className="w-4 h-4"></i> Saídas
+                                    </h2>
+                                    <button onClick={() => setExpandExpenseFilter(!expandExpenseFilter)} className="p-1 rounded-full hover:bg-slate-800 text-slate-500 transition-colors">
+                                        <i data-lucide={expandExpenseFilter ? "chevron-up" : "chevron-down"} className="w-4 h-4"></i>
+                                    </button>
+                                </div>
                                 <button onClick={() => openAddModal('expense')} className="text-xs bg-red-500/10 text-red-400 px-2 py-1 rounded hover:bg-red-500/20 transition-colors">+ Adicionar</button>
                             </div>
-                            {combinedExpenses.length === 0 ? <div className="text-center py-4 text-slate-600 text-xs border border-dashed border-slate-800 rounded-lg">Nenhum gasto lançado.</div> : renderList(combinedExpenses, 'expense')}
+
+                            <div className={`gap-2 mb-2 ${expandExpenseFilter ? 'flex flex-wrap' : 'flex overflow-x-auto pb-2 no-scrollbar'}`}>
+                                <button onClick={() => setExpenseFilter('all')} className={`px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-colors ${expenseFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Todos</button>
+                                {CATEGORIES.expense.map(cat => (
+                                    <button key={cat.id} onClick={() => setExpenseFilter(cat.id)} className={`px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-colors flex items-center gap-2 ${expenseFilter === cat.id ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
+                                        <CategoryIcon iconName={cat.icon} size="w-3 h-3" /> {cat.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {filteredExpenses.length === 0 ? <div className="text-center py-4 text-slate-600 text-xs border border-dashed border-slate-800 rounded-lg">Nenhum gasto encontrado.</div> : renderList(filteredExpenses, 'expense')}
                         </div>
 
                         <div className="h-24"></div>
@@ -675,8 +990,21 @@
                     {/* Generic Add Modal */}
                     {isAdding && (
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-                            <div className="bg-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-4 animate-slide-up border border-slate-700">
+                            <div className="bg-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-4 animate-slide-up border border-slate-700 max-h-[90vh] overflow-y-auto">
                                 <h3 className={`text-xl font-bold ${transactionType === 'income' ? 'text-emerald-400' : 'text-white'}`}>{transactionType === 'income' ? 'Nova Entrada' : 'Nova Saída'}</h3>
+                                
+                                <div className="space-y-2">
+                                    <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Categoria</label>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {(transactionType === 'income' ? CATEGORIES.income : CATEGORIES.expense).map(cat => (
+                                            <button key={cat.id} onClick={() => setNewCategoryIcon(cat.id)} className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all ${newCategoryIcon === cat.id ? 'bg-blue-600/20 border-blue-500 text-white' : 'bg-slate-900 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>
+                                                <CategoryIcon iconName={cat.icon} size="w-5 h-5" />
+                                                <span className="text-[10px] mt-1">{cat.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
                                 <Input label="Nome" placeholder={transactionType === 'income' ? "Ex: Salário" : "Ex: Nubank"} value={newCategory} onChange={(e) => setNewCategory(e.target.value)} />
                                 <Input label="Valor Inicial (Opcional)" type="number" placeholder="0.00" value={newValue} onChange={(e) => setNewValue(e.target.value)} />
                                 <Select label="Repetição" value={frequency} onChange={(e) => setFrequency(e.target.value)} options={[{ value: 'once', label: 'Apenas este mês' }, { value: 'fixed', label: 'Fixo (Todo mês)' }, { value: 'installments', label: 'Definir duração (Meses)' }]} />
@@ -706,14 +1034,24 @@
                                             label="Frequência do item"
                                             value={subFrequency}
                                             onChange={(e) => setSubFrequency(e.target.value)}
-                                            options={[
-                                                { value: 'once', label: 'Apenas neste mês (Ex: Uber)' },
-                                                { value: 'fixed', label: 'Fixo (Ex: Netflix)' },
-                                                { value: 'installments', label: 'Parcelado (Ex: Celular)' }
-                                            ]}
+                                            options={getSubItemFrequencyOptions()}
                                         />
                                         {subFrequency === 'installments' && (
-                                            <Input label="Quantas parcelas?" type="number" value={subInstallmentsCount} onChange={(e) => setSubInstallmentsCount(e.target.value)} />
+                                            <Input 
+                                                label="Quantas parcelas?" 
+                                                type="number" 
+                                                value={subInstallmentsCount} 
+                                                onChange={(e) => {
+                                                    const val = parseInt(e.target.value);
+                                                    if (val > maxSubMonths) {
+                                                        setSubInstallmentsCount(maxSubMonths.toString());
+                                                    } else {
+                                                        setSubInstallmentsCount(e.target.value);
+                                                    }
+                                                }}
+                                                max={maxSubMonths}
+                                                helperText={`Máximo permitido: ${maxSubMonths} parcelas`}
+                                            />
                                         )}
                                     </>
                                 )}
@@ -725,6 +1063,86 @@
                             </div>
                         </div>
                     )}
+
+                    {/* Delete Modal */}
+                    {deleteModal && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-4 animate-slide-up border border-slate-700">
+                                <h3 className="text-xl font-bold text-white">Excluir "{deleteModal.item.name}"?</h3>
+                                
+                                {deleteModal.item.isRecurring ? (
+                                    <div className="flex flex-col gap-3">
+                                        <Button variant="secondary" onClick={() => executeDelete('this_month')}>
+                                            Apenas este mês
+                                        </Button>
+                                        <Button variant="primary" onClick={() => executeDelete('future')}>
+                                            Deste mês em diante
+                                        </Button>
+                                        <Button variant="danger" onClick={() => executeDelete('all')}>
+                                            Apagar tudo (Histórico)
+                                        </Button>
+                                        <Button variant="ghost" onClick={() => setDeleteModal(null)}>
+                                            Cancelar
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-3">
+                                        <Button variant="secondary" className="flex-1" onClick={() => setDeleteModal(null)}>Cancelar</Button>
+                                        <Button variant="danger" className="flex-1" onClick={() => executeDelete('all')}>Excluir</Button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Edit Modal (Atualizado com Categoria) */}
+                    {editModal && (
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+                            <div className="bg-slate-800 w-full max-w-sm rounded-2xl p-6 space-y-4 animate-slide-up border border-slate-700 max-h-[90vh] overflow-y-auto">
+                                <h3 className="text-xl font-bold text-white">Editar "{editModal.item.name}"</h3>
+                                
+                                {!editModal.isSubItem && (
+                                    <div className="space-y-2">
+                                        <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">Categoria</label>
+                                        <div className="grid grid-cols-4 gap-2">
+                                            {(editModal.type === 'income' ? CATEGORIES.income : CATEGORIES.expense).map(cat => (
+                                                <button key={cat.id} onClick={() => setEditCategory(cat.id)} className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all ${editCategory === cat.id ? 'bg-blue-600/20 border-blue-500 text-white' : 'bg-slate-900 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>
+                                                    <CategoryIcon iconName={cat.icon} size="w-5 h-5" />
+                                                    <span className="text-[10px] mt-1">{cat.label}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <Input label="Nome" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                                <Input label="Valor" type="number" value={editValue} onChange={(e) => setEditValue(e.target.value)} />
+
+                                {(editModal.item.isRecurring || (editModal.isSubItem && editModal.parentItem.isRecurring)) ? (
+                                    <>
+                                        <p className="text-xs text-blue-300 mt-2">Este é um item recorrente.</p>
+                                        <div className="flex flex-col gap-3 pt-2">
+                                            <Button variant="secondary" onClick={() => executeEdit('this_month')}>
+                                                Salvar apenas este mês
+                                            </Button>
+                                            <Button variant="primary" onClick={() => executeEdit('future')}>
+                                                Salvar deste mês em diante
+                                            </Button>
+                                            <Button variant="ghost" onClick={() => setEditModal(null)}>
+                                                Cancelar
+                                            </Button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex gap-3 mt-4">
+                                        <Button variant="secondary" className="flex-1" onClick={() => setEditModal(null)}>Cancelar</Button>
+                                        <Button variant="success" className="flex-1" onClick={() => executeEdit('local')}>Salvar</Button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                 </div>
             );
         }
