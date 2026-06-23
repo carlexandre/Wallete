@@ -58,7 +58,13 @@
 <body>
     <div id="root"></div>
 
-    <script type="text/babel">
+    <script>
+        Babel.registerPreset('react-classic', {
+        presets: [['react', { runtime: 'classic' }]]
+        });
+    </script>
+
+    <script type="text/babel" data-presets="react-classic">
         // --- CONFIGURAÇÃO FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyCeTrip7zVFMqS4NCZG_RYaQ_PTvCcy6hc",
