@@ -10,13 +10,13 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     
     <!-- Babel -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.24.0/babel.min.js"></script>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide@0.344.0"></script>
 
     <!-- Google Font: Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
@@ -58,13 +58,7 @@
 <body>
     <div id="root"></div>
 
-    <script>
-        Babel.registerPreset('react-classic', {
-        presets: [['react', { runtime: 'classic' }]]
-        });
-    </script>
-
-    <script type="text/babel" data-presets="react-classic">
+    <script type="text/babel" data-presets="react">
         // --- CONFIGURAÇÃO FIREBASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyCeTrip7zVFMqS4NCZG_RYaQ_PTvCcy6hc",
